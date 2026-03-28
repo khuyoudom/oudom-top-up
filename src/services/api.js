@@ -1,6 +1,18 @@
 /* API Service — connects to Express backend */
 
-const API_BASE = '/api';
+const configuredApiBase = (import.meta.env.VITE_API_BASE || '').trim();
+
+function resolveApiBase() {
+  if (configuredApiBase) {
+    return configuredApiBase.replace(/\/+$/, '');
+  }
+
+  // In Vite dev, use proxy `/api`; otherwise call backend directly.
+  const isViteDev = typeof window !== 'undefined' && window.location.port === '5173';
+  return isViteDev ? '/api' : 'http://127.0.0.1:3001/api';
+}
+
+const API_BASE = resolveApiBase();
 
 export async function checkPlayerHealth() {
   const res = await fetch(`${API_BASE}/player/health`);
@@ -33,8 +45,18 @@ export async function loginUser(type, username, password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type, username, password }),
   });
+
+  const contentType = res.headers.get('content-type') || '';
+
+  if (!contentType.includes('application/json')) {
+    const rawBody = await res.text();
+    const compactBody = rawBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const preview = compactBody.slice(0, 180) || 'Empty response body';
+    throw new Error(`Server returned non-JSON response (${res.status}). ${preview}`);
+  }
+
   const data = await res.json();
-  if (!data.success) throw new Error(data.error || 'Login failed');
+  if (!res.ok || !data?.success) throw new Error(data?.error || `Login failed (${res.status})`);
   return data.data; // { token, user }
 }
 
